@@ -1,0 +1,506 @@
+#+title: Virtual mail server on Arch Linux
+* Packages
+amavisd-new
+certbot
+certbot-nginx
+clamav
+dovecot
+mailutils
+nginx
+opendkim
+php-imap
+php-pgsql
+postfix
+postfixadmin
+postgresql
+pyzor
+python-postfix-policyd-spf
+spamassassin
+* Start
+** This guide assumes a working Arch Linux server running nginx, configured for SSL with certificate, firewall, postgresql, and an AUR helper.
+certbot certbot-nginx iptables nginx postgresql
+** In your firewall, make sure ports 
+** Edit /etc/services and include 'submission   587/tcp' and 'submission 587/udp'
+* DNS
+Many VPS providers (Linode) include DNS management, but others (OVH) do not.  
+A entries: domain.com, hostname.domain.com, mail.domain.com
+MX entries: mail.domain.com
+TXT entries: mail._ dkim
+* SSL
+* IMAP
+Postgresql
+PostfixAdmin
+
+* SMTP
+* Spam filters
+* OpenDKIM
+BLF-CRYPT
+* Folders
+** etc/
+*** postfix/
+**** main.cf
+#+BEGIN_EXAMPLE
+# COMPATIBILITY
+compatibility_level = 2
+
+# LOCAL PATHNAME INFORMATION
+queue_directory = /var/spool/postfix
+command_directory = /usr/bin
+daemon_directory = /usr/lib/postfix/bin
+data_directory = /var/lib/postfix
+
+# QUEUE AND PROCESS OWNERSHIP
+mail_owner = postfix
+#default_privs = nobody
+
+# INTERNET HOST AND DOMAIN NAMES
+myhostname = egpavelka.com
+mydomain = egpavelka.com
+
+# SENDING MAIL
+myorigin = $myhostname
+
+# RECEIVING MAIL
+#inet_interfaces = all
+#proxy_interfaces =
+inet_protocols = ipv4
+mydestination =
+
+# REJECTING MAIL FOR UNKNOWN LOCAL USERS
+local_recipient_maps = $virtual_mailbox_maps
+#unknown_local_recipient_reject_code = 550
+
+# TRUST AND RELAY CONTROL
+mynetworks = 127.0.0.0/8
+#relay_domains = $mydestination
+
+# INTERNET OR INTRANET
+relayhost =
+
+# REJECTING UNKNOWN RELAY USERS
+#relay_recipient_maps = hash:/etc/postfix/relay_recipients
+
+# INPUT RATE CONTROL
+#in_flow_delay = 1s
+
+
+# ALIAS DATABASE
+alias_maps = hash:/etc/postfix/aliases
+alias_database = $alias_maps
+
+# ADDRESS EXTENSIONS (e.g., user+foo)
+# DEBUGGING CONTROL
+debug_peer_level = 2
+
+debugger_command =
+	 PATH=/bin:/usr/bin:/usr/local/bin:/usr/X11R6/bin
+	 ddd $daemon_directory/$process_name $process_id & sleep 5
+
+# INSTALL-TIME CONFIGURATION INFORMATION
+sendmail_path = /usr/bin/sendmail
+newaliases_path = /usr/bin/newaliases
+mailq_path = /usr/bin/mailq
+setgid_group = postdrop
+html_directory = no
+manpage_directory = /usr/share/man
+sample_directory = /etc/postfix
+readme_directory = /usr/share/doc/postfix
+inet_protocols = ipv4
+meta_directory = /etc/postfix
+shlib_directory = /usr/lib/postfix
+
+# Virtual mapping
+virtual_uid_maps = static:5000
+virtual_gid_maps = static:5000
+virtual_mailbox_base = /var/mail/vmail
+virtual_transport = virtual
+virtual_mailbox_domains = pgsql:/etc/postfix/virtual_mailbox_domains.cf
+virtual_mailbox_maps = pgsql:/etc/postfix/virtual_mailbox_maps.cf
+virtual_alias_maps = pgsql:/etc/postfix/virtual_alias_maps.cf
+local_transport = virtual
+local_recipient_maps = $virtual_mailbox_maps
+transport_maps = hash:/etc/postfix/transport
+
+# Enable SASL and blacklists
+disable_vrfy_command = yes
+smtpd_delay_reject = yes
+smtpd_helo_required = yes
+smtpd_helo_restrictions =
+        permit_mynetworks,
+        reject_non_fqdn_helo_hostname,
+        reject_invalid_helo_hostname,
+        permit
+smtpd_recipient_restrictions =
+        permit_sasl_authenticated,
+        reject_unauth_pipelining,
+        reject_invalid_hostname,
+        reject_non_fqdn_hostname,
+        reject_non_fqdn_recipient,
+        reject_unknown_recipient_domain,
+        reject_unauth_destination,
+        permit_mynetworks,
+        reject_rbl_client zen.spamhaus.org,
+        reject_rbl_client bl.spamcop.net,
+        permit
+
+# Use Dovecot for SASL to aunthenticate SMTP
+broken_sasl_auth_clients = yes
+smtpd_sasl_type = dovecot
+smtpd_sasl_path = /var/run/dovecot/auth-client
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_security_options = noanonymous
+smtpd_sasl_local_domain =
+smtpd_sasl_authenticated_header = no
+
+# Add SSL with certificate
+smtpd_use_tls = yes
+smtpd_tls_key_file = /etc/letsencrypt/live/example.com/privkey.pem
+smtpd_tls_cert_file = /etc/letsencrypt/live/example.com/fullchain.pem
+smtpd_tls_security_level=may
+smtpd_tls_auth_only = yes
+smtpd_tls_loglevel = 3
+smtpd_tls_received_header = yes
+smtpd_tls_session_cache_timeout = 3600s
+smtpd_tls_protocols = !SSLv3
+smtpd_tls_mandatory_protocols = !SSLv2, !SSLv3
+smtpd_tls_mandatory_ciphers = high
+tls_high_cipherlist = EDH+CAMELLIA:EDH+aRSA:EECDH+aRSA+AESGCM:EECDH+aRSA+SHA384:EECDH+aRSA+SHA256:EECDH:+CAMELLIA256:+AES256:+CAMELLIA128:+AES128:+SSLv3:!aNULL:!eNULL:!LOW:!3DES:!MD5:!EXP:!PSK:!DSS:!RC4:!SEED:!ECDSA:CAMELLIA256-SHA:AES256-SHA:CAMELLIA128-SHA:AES128-SHA
+smtpd_tls_eecdh_grade = ultra
+tls_random_source = dev:/dev/urandom
+
+# Add support for OpenDKIM
+milter_protocol = 2
+milter_default_action = accept
+smtpd_milters = unix:/var/run/opendkim/opendkim.sock
+non_smtpd_milters = unix:/var/run/opendkim/opendkim.sock
+#+END_EXAMPLE
+**** master.cf
+#+BEGIN_EXAMPLE
+#
+# Postfix master process configuration file.  For details on the format
+# of the file, see the master(5) manual page (command: "man 5 master" or
+# on-line: http://www.postfix.org/master.5.html).
+#
+# Do not forget to execute "postfix reload" after editing this file.
+#
+# ==========================================================================
+# service type  private unpriv  chroot  wakeup  maxproc command + args
+#               (yes)   (yes)   (no)    (never) (100)
+# ==========================================================================
+#smtp      inet  n       -       n       -       -       smtpd
+#smtp      inet  n       -       n       -       1       postscreen
+#smtpd     pass  -       -       n       -       -       smtpd
+#dnsblog   unix  -       -       n       -       0       dnsblog
+#tlsproxy  unix  -       -       n       -       0       tlsproxy
+smtp       inet n       -       n       -       -       smtpd
+  -o content_filter=amavisfeed:[127.0.0.1]:10024
+submission inet n       -       n       -       -       smtpd
+  -o syslog_name=postfix/submission
+  -o smtpd_tls_security_level=encrypt
+  -o tls_preempt_cipherlist=yes
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_reject_unlisted_recipient=no
+  -o smtpd_recipient_restrictions=
+  -o smtpd_relay_restrictions=permit_sasl_authenticated,reject
+  -o milter_macro_daemon_name=ORIGINATING
+smtps     inet  n       -       n       -       -       smtpd
+  -o syslog_name=postfix/smtps
+  -o smtpd_tls_wrappermode=yes
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_reject_unlisted_recipient=no
+  -o smtpd_recipient_restrictions=
+  -o smtpd_relay_restrictions=permit_sasl_authenticated,reject
+  -o milter_macro_daemon_name=ORIGINATING
+#628       inet  n       -       n       -       -       qmqpd
+pickup    unix  n       -       n       60      1       pickup
+cleanup   unix  n       -       n       -       0       cleanup
+qmgr      unix  n       -       n       300     1       qmgr
+#qmgr     unix  n       -       n       300     1       oqmgr
+tlsmgr    unix  -       -       n       1000?   1       tlsmgr
+rewrite   unix  -       -       n       -       -       trivial-rewrite
+bounce    unix  -       -       n       -       0       bounce
+defer     unix  -       -       n       -       0       bounce
+trace     unix  -       -       n       -       0       bounce
+verify    unix  -       -       n       -       1       verify
+flush     unix  n       -       n       1000?   0       flush
+proxymap  unix  -       -       n       -       -       proxymap
+proxywrite unix -       -       n       -       1       proxymap
+smtp      unix  -       -       n       -       -       smtp
+relay     unix  -       -       n       -       -       smtp
+#       -o smtp_helo_timeout=5 -o smtp_connect_timeout=5
+showq     unix  n       -       n       -       -       showq
+error     unix  -       -       n       -       -       error
+retry     unix  -       -       n       -       -       error
+discard   unix  -       -       n       -       -       discard
+local     unix  -       n       n       -       -       local
+virtual   unix  -       n       n       -       -       virtual
+lmtp      unix  -       -       y       -       -       lmtp
+anvil     unix  -       -       n       -       1       anvil
+scache    unix  -       -       n       -       1       scache
+#
+# ====================================================================
+#
+# anti spam & anti virus section
+#
+amavisfeed      unix  -    -       n       -       2       smtp
+ -o smtp_data_done_timeout=1200
+ -o smtp_send_xforward_command=yes
+ -o disable_dns_lookups=yes
+ -o max_use=20
+127.0.0.1:10025 inet n  -       y       -       -       smtpd
+ -o content_filter=
+ -o smtpd_delay_reject=no
+ -o smtpd_client_restrictions=permit_mynetworks,reject
+ -o smtpd_helo_restrictions=
+ -o smtpd_sender_restrictions=
+ -o smtpd_recipient_restrictions=permit_mynetworks,reject
+ -o smtpd_data_restrictions=reject_unauth_pipelining
+ -o smtpd_end_of_data_restrictions=
+ -o mynetworks=127.0.0.0/8
+ -o smtpd_error_sleep_time=0
+ -o smtpd_soft_error_limit=1001 
+ -o smtpd_hard_error_limit=1000
+ -o smtpd_client_connection_count_limit=0
+ -o smtpd_client_connection_rate_limit=0
+ -o receive_override_options=no_header_body_checks,no_unknown_recipient_checks,no_milters
+ -o local_header_rewrite_clients=
+#spamassassin unix -     n       n       -       -       pipe
+#  flags=R user=spamd argv=/usr/bin/spamc -f -e /usr/sbin/sendmail -oi -f ${sender} ${recipient}
+#policyd-spf  unix  -       n       n       -       0       spawn
+#  user=nobody argv=/usr/bin/policyd-spf
+dovecot   unix  -       n       n       -       -       pipe
+  flags=DRhu user=vmail:vmail argv=/usr/lib/dovecot/deliver -f ${sender} -d ${recipient}
+#+END_EXAMPLE
+**** virtual _ alias _ maps.cf
+#+BEGIN_EXAMPLE
+user = postfix
+password = DB_PASSWORD
+hosts = localhost
+dbname = postfix
+table = alias
+select_field = goto
+where_field = address
+#+END_EXAMPLE
+**** virtual _ mailbox _ domains.cf
+#+BEGIN_EXAMPLE
+user = postfix
+password = DB_PASSWORD
+hosts = localhost
+dbname = postfix
+table = domain
+select_field = domain
+where_field = domain
+#+END_EXAMPLE
+**** virtual _ mailbox _ maps.cf
+#+BEGIN_EXAMPLE
+user = postfix
+password = DB_PASSWORD
+hosts = localhost
+dbname = postfix
+table = mailbox
+select_field = maildir
+where_field = username
+#+END_EXAMPLE
+*** dovecot/
+**** conf.d/
+***** 10-auth.conf
+#+BEGIN_EXAMPLE
+auth_mechanisms = plain login
+disable_plaintext_auth = yes
+
+!include auth-sql.conf.ext
+#+END_EXAMPLE
+***** 10-mail.conf
+#+BEGIN_EXAMPLE
+mail_location = maildir:/var/mail/vmail/%d/%n
+mail_privileged_group = mail
+mail_uid = vmail
+mail_gid = vmail
+first_valid_uid = 5000
+last_valid_uid = 5000
+
+namespace inbox {
+    type = private
+    separator = /
+    prefix =
+    inbox = yes
+    hidden = no
+    
+    mailbox Trash {
+        auto = no
+        special_use = \Trash
+    }
+
+    mailbox Drafts {
+        auto = no
+        special_use = \Drafts
+    }
+
+    mailbox Sent {
+        auto = subscribe                 
+        special_use = \Sent
+    }
+
+    mailbox "Sent Messages" {
+        auto = no
+        special_use = \Sent
+    }
+
+    mailbox Spam {
+        auto = create
+        special_use = \Junk
+    }
+
+}
+#+END_EXAMPLE
+***** 10-master.conf
+#+BEGIN_EXAMPLE
+service imap-login {
+    inet_listener imap {
+        port = 0
+    }
+    inet_listener imaps {
+        port = 993
+        ssl = yes
+    }
+}
+service pop3-login {
+    inet_listener pop3 {
+        port = 0
+    }
+    inet_listener pop3s {
+        # port = 995
+        # ssl = yes
+        port = 0
+    }
+}
+service auth {
+    unix_listener auth-client {
+        mode = 0660
+        user = postfix
+        group = postfix
+    }
+    user = root
+}
+#+END_EXAMPLE
+***** 10-ssl.conf
+#+BEGIN_EXAMPLE
+ssl = required
+ssl_cert = </etc/letsencrypt/live/example.com/fullchain.pem
+ssl_key = </etc/letsencrypt/live/example.com/privkey.pem
+ssl_dh = </etc/dovecot/dh.pem
+
+# SSL protocols to use
+# ssl_protocols = !SSLv3
+
+# SSL ciphers to use
+ssl_cipher_list = ECDH+AESGCM:DH+AESGCM:ECDH+AES256:DH+AES256:ECDH+AES128:DH+AES:RSA+AESGCM:RSA+AES:!aNULL:!MD5:!DSS
+
+
+#+END_EXAMPLE
+***** auth-sql.conf.ext
+#+BEGIN_EXAMPLE
+passdb {
+    driver = sql
+    args = /etc/dovecot/dovecot-sql.conf
+}
+userdb {
+    driver = sql
+    args = /etc/dovecot/dovecot-sql.conf
+}
+#+END_EXAMPLE
+**** dovecot.conf
+#+BEGIN_EXAMPLE
+postmaster_address = postmaster@example.com
+protocols = imap
+
+!include conf.d/*.conf
+!include_try local.conf
+#+END_EXAMPLE
+**** dovecot-sql.conf
+#+BEGIN_EXAMPLE
+driver = pgsql
+connect = host=/var/run/postgresql dbname=postfix user=postfix password=DBPASSWORD
+
+default_pass_scheme = BLF-CRYPT
+
+user_query = SELECT '/var/mail/vmail/%d/%n' AS home, 'maildir:/var/mail/vmail/%d/%n' AS mail, 5000 AS uid, 5000 AS gid FROM mailbox WHERE username = '%u' AND active = '1'
+
+password_query = SELECT username as user, password, '/var/mail/vmail/%d/%n' as userdb_home, 'maildir:/var/mail/vmail/%d/%n' as userdb_mail, 5000 as userdb_uid, 5000 as userdb_gid FROM mailbox WHERE username = '%u' AND active = '1'
+#+END_EXAMPLE
+*** webapps/
+**** postfixadmin/
+***** config.inc.php
+***** config.local.php
+#+BEGIN_EXAMPLE
+$CONF['configured'] =        true;
+$CONF['setup_password'] =    '';
+
+// Database config
+$CONF['database_type'] =     'pgsql';
+$CONF['database_host'] =     'localhost';
+$CONF['database_user'] =     'postfix';
+$CONF['database_password'] = 'PASSWORD';
+$CONF['database_name'] =     'postfix';
+
+// Site admin
+$CONF['admin_email'] = 'admin@example.com';
+// Site admin name
+// This will be used as signature in notification messages
+$CONF['admin_name'] = 'admin';
+
+// Passwords and encryption
+$CONF['encrypt'] = 'dovecot:BLF-CRYPT';
+$CONF['password_validation'] = array(
+# '/reg exp/'         => '$PALANG key (optional: + parameter)',
+  '/.{5}/'            => 'password_too_short 5',  # minimum length 5 characters
+  '/([a-zA-Z].*){3}/' => 'password_no_characters 3'  # must contain at least 3 letters
+# '/([0-9].*){2}/'    => 'password_no_digits 2', # must contain at least 2 digits
+    );
+$CONF['dovecotpw'] = "/usr/sbin/doveadm pw -r 12";
+
+// Default aliases to create
+$CONF['default_aliases'] = array (
+  'admin'      => 'admin@example.com',
+  'postmaster' => 'postmaster@example.com'
+);
+
+// Location of administrative scripts
+$CONF['mailbox_postcreation_script'] = 'sudo -u vmail /usr/local/bin/postfixadmin-mailbox-postcreation.sh';
+$CONF['mailbox_postdeletion_script'] = 'sudo -u vmail /usr/local/bin/postfixadmin-mailbox-postdeletion.sh';
+$CONF['domain_postdeletion_script'] = 'sudo -u vmail /usr/local/bin/postfixadmin-domain-postdeletion.sh';
+
+$['vacation_domain'] = 'autoreply.example.com';
+
+// Below information will be on all pages.
+// If you don't want the footer information to appear set this to 'NO'.
+$CONF['show_footer_text'] = 'YES';
+$CONF['footer_text'] = 'Return to example.com';
+$CONF['footer_link = 'https://example.com';
+#+END_EXAMPLE
+*** opendkim/
+**** opendkim.conf
+#+BEGIN_EXAMPLE
+Domain           example.com
+KeyFile          /etc/opendkim/keys/example.com/dkim.key
+OverSignHeaders  From
+PidFile          /var/run/opendkim/opendkim.pid
+RequireSafeKeys  No
+Selector         Mail
+Socket           unix:/var/run/opendkim/opendkim.sock
+Syslog           Yes
+UMask            007
+#+END_EXAMPLE
+** var/
+*** mail/ -> spool/mail
+**** vmail (drwxrws--- vmail:vmail)
+***** domain.com (drwx--S--- vmail:vmail
+** usr/
+*** share/
+**** doc/
+***** postfixadmin/
+****** ADDITIONS/
+******* postfixadmin - * - *.sh
+Symlink to /usr/local/bin and make executable; referred to in /etc/webapps/postfixadmin/config.local.php
+***** dovecot/
+****** example-config/
