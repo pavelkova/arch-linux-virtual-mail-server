@@ -1,0 +1,8 @@
+# virtual alias maps
+user = postfix
+password = DB_PASSWORD
+hosts = localhost
+dbname = postfix
+table = alias
+select_field = goto
+where_field = address

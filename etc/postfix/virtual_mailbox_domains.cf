@@ -1,0 +1,8 @@
+# virtual mailbox domains
+user = postfix
+password = DB_PASSWORD
+hosts = localhost
+dbname = postfix
+table = domain
+select_field = domain
+where_field = domain
