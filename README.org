@@ -40,7 +40,50 @@ to use.  Copy the output (including '{BLF-CRYPT}'.
 Edit /etc/services and include 'submission   587/tcp' and 'submission 587/udp'
 ** Dovecot
 ** OpenDKIM
-** Spam filters
+*** Permissions
+** Spam and virus filtering
+Packages =clamav= and =amavisd-new= both create their own system user and
+group to manage their respective services.  Since the processes need
+access to one another, add them to one another's groups.
+#+BEGIN_EXAMPLE
+sudo usermod -aG clamav amavisd
+sudo usermod -aG amavisd clamav
+#+END_EXAMPLE
+Alternatively, edit the config files to run both processes as the same
+user.
+*** ClamAV
+Enable the daemon and the service =freshclam=, whch will keep the virus
+definitions updated at regular intervals.
+#+BEGIN_EXAMPLE
+systemctl enable clamav-daemon
+systemctl start clamav-daemon
+systemctl enable freshclam
+systemctl start freshclam
+#+END_EXAMPLE
+**** Updating virus definitions
+At times it may be necessary to update ClamAV definitions manually. To
+do so, simply run =sudo freshclam=. If the update process hangs, it
+might be easier to remove the old definitions and redownload the current set.
+#+BEGIN_EXAMPLE
+# clean the old definitions
+sudo rm -rf /var/lib/clamav/daily
+# download new
+sudo freshclam
+# reload daemon
+sudo systemctl restart clamav-daemon
+#+END_EXAMPLE
+*** Amavis
+Settings in =/etc/amavisd/amavisd.conf= need to be changed to direct
+mail to ClamAV for virus scanning.
+ #+BEGIN_EXAMPLE
+# virus_mapper_* =[1]
+# ..add clamav socket
+ #+END_EXAMPLE
+Then enable the service.
+#+BEGIN_EXAMPLE
+systemctl enable amavisd
+systemctl start amavisd
+#+END_EXAMPLE
 * Folders
 ** etc/
 *** postfix/
