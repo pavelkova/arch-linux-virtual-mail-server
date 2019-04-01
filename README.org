@@ -41,6 +41,27 @@ Edit /etc/services and include 'submission   587/tcp' and 'submission 587/udp'
 ** Dovecot
 ** OpenDKIM
 *** Permissions
+The postfix user needs to be added to the opendkim group to avoid
+permissions errors.
+#+BEGIN_EXAMPLE
+sudo usermod -aG opendkim postfix
+#+END_EXAMPLE
+Note: in Arch Linux, the =/var/run= folder is symlinked to =/run=.
+Since permissions on symbolic links are overriden by those on the original
+files, permissions need to be set on =/run/opendkim= rather than
+=/var/run/opendkim=.  Make sure the owner and group of this directory is
+set to =opendkim= by running:
+#+BEGIN_EXAMPLE
+sudo chown -R opendkim:opendkim /var/run/opendkim
+#+END_EXAMPLE
+Postfix should now have full acces to the milter and permissions
+errors should be resolved.  Start and enable the OpenDKIM service and
+reload Postfix.
+#+BEGIN_EXAMPLE
+sudo systemctl start opendkim
+sudo systemctl enable opendkim
+sudo systemctl restart postfix
+#+END_EXAMPLE
 ** Spam and virus filtering
 Packages =clamav= and =amavisd-new= both create their own system user and
 group to manage their respective services.  Since the processes need
