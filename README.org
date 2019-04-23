@@ -6,6 +6,7 @@ amavisd-new certbot certbot-nginx clamav dovecot mailutils nginx opendkim php-im
 * Guide
 ** Start
 *** This guide assumes a working Arch Linux web server running NGINX, PostgreSQL, and PHP.  In most cases, a well-configured server will already have a configured firewall and generated SSL certificates.  Some ports may need to be opened in the firewall to allow IMAP (143, 993) and SMTP (25, 465, 587) connections.  Existing certificates may be used instead of generating a new one.
+*** The most common problems with self-managed mail servers involve permissions.  Pay special attention to the users and groups created and the ownership and permissions for files and folders where noted.
 ** Configure DNS
 *** Many VPS providers include DNS management tools.  For 
 A entries: domain.com, hostname.domain.com, mail.domain.com
@@ -38,7 +39,44 @@ Where PASSWORD is the plaintext password you want to hash and 15 can be any
 number between 4 and 31--the '-r' flag specifies how many rounds of encryption
 to use.  Copy the output (including '{BLF-CRYPT}'.
 Edit /etc/services and include 'submission   587/tcp' and 'submission 587/udp'
+*** Create mail folders
+
 ** Dovecot
+SASL permissions errors can appear if the authentication service
+is not configured the same way in both Dovecot and Postfix.
+If Postfix is using Dovecot's auth-client,
+#+BEGIN_EXAMPLE
+# /etc/postfix/main.cf
+...
+smtpd_sasl_path = /var/run/dovecot/auth-client
+...
+#+END_EXAMPLE
+Dovecot must listen for authentication requests on auth-client.
+#+BEGIN_EXAMPLE
+# /etc/dovecot/conf.d/10-master.conf
+...
+service auth {
+    unix_listener auth-client {
+        mode = 0660
+        user = postfix
+        group = postfix
+    }
+    user = root
+}
+...
+#+END_EXAMPLE
+Within this block, Dovecot is instructed to grant ownership of its
+auth-client service to user =postfix=, group =postfix= with permissions of
+0660 (srw-rw----, where =s= denotes service, and read-write permissions
+are granted to the owner and group only).
+Once Dovecot has been started or restarted with these settings, they
+should be set automatically.  Check the output of =ls -l
+/run/dovecot/= to verify, and fix the permissions if necessary with
+these commands:
+#+BEGIN_EXAMPLE
+sudo chown postfix:postfix /run/dovecot/auth-client
+sudo chmod 0660 /run/dovecot/auth-client
+#+END_EXAMPLE
 ** OpenDKIM
 *** Permissions
 The postfix user needs to be added to the opendkim group to avoid
